@@ -14,8 +14,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Ollama API Backend",
-    description="A FastAPI backend service for connecting to Ollama",
+    title="Gemini RAG API Backend",
+    description="A FastAPI backend service for RAG pipeline using Gemini API, LlamaIndex, and ChromaDB",
     version="1.0.0",
 )
 
@@ -31,7 +31,7 @@ app.include_router(generation.router, prefix="/api/v1")
 
 @app.get("/")
 async def root():
-    return {"status": "healthy", "message": "Ollama FastAPI Backend Service"}
+    return {"status": "healthy", "message": "Gemini RAG FastAPI Backend Service"}
 
 @app.get("/health")
 async def health_check():

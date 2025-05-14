@@ -4,11 +4,11 @@ from pydantic import BaseModel
 from typing import Optional
 import logging
 
-from services.ollama_service import OllamaService
+from services.rag_service import RAGService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["generation"])
-ollama_service = OllamaService()
+rag_service = RAGService()
 
 class GenerationRequest(BaseModel):
     prompt: str
@@ -16,9 +16,9 @@ class GenerationRequest(BaseModel):
 
 @router.post("/generate")
 async def generate_text(request: GenerationRequest):
-    """Generate text using the default model (non-streaming)"""
+    """Generate text using RAG pipeline (non-streaming)"""
     try:
-        response = await ollama_service.generate(
+        response = await rag_service.generate(
             prompt=request.prompt
         )
         return {"response": response}
@@ -28,10 +28,10 @@ async def generate_text(request: GenerationRequest):
 
 @router.post("/generate/stream")
 async def generate_stream(request: GenerationRequest):
-    """Stream text generation from the default model"""
+    """Stream text generation from the RAG pipeline"""
     try:
         return StreamingResponse(
-            ollama_service.generate_stream(
+            rag_service.generate_stream(
                 prompt=request.prompt,
                 system_prompt=request.system_prompt
             ),
