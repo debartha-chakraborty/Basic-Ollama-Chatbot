@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import asyncio
 import logging
-from services.rag_service import RAGService
+from ..services.rag_service import RAGService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["generation"])
@@ -16,10 +16,20 @@ rag_service = RAGService()
 class GenerationRequest(BaseModel):
     prompt: str
     system_prompt: Optional[str] = None
-    
 class ToolSelection(BaseModel):
     tool_name: str
-    parameters: Dict[str, Any]
+    parameters: Dict[str, Any]    
+class ToolParameterSchema(BaseModel):
+    """Schema for tool parameters"""
+    type: str
+    description: str
+    # Add other fields as needed
+
+class ToolSchema(BaseModel):
+    """Response model for a single tool"""
+    name: str
+    description: str
+    parameters: Dict[str, ToolParameterSchema]
 
 class AgenticGenerationRequest(BaseModel):
     prompt: str
@@ -98,22 +108,45 @@ async def ingest_federal_register(request: IngestionRequest):
         logger.error(f"Federal Register ingestion error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
 
-@router.get("/tools")
+@router.get("/tools", response_model=Dict[str, List[ToolSchema]])
 async def list_available_tools():
-    """List all available tools in the Agentic RAG system"""
+    """
+    List all available tools in the Agentic RAG system.
+    Returns tool names, descriptions, and parameters in a JSON format.
+    """
     try:
-        tools = [
-            {
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": getattr(tool, "args_schema", {})
-            }
-            for tool in rag_service.tools
-        ]
+        tools = []
+        for tool in rag_service.tools:
+            # Safely extract parameters schema
+            parameters = {}
+            if hasattr(tool, 'args_schema'):
+                try:
+                    if hasattr(tool.args_schema, 'schema'):
+                        schema = tool.args_schema.schema()
+                        parameters = {
+                            name: ToolParameterSchema(
+                                type=param.get("type", "string"),
+                                description=param.get("description", "")
+                            )
+                            for name, param in schema.get("properties", {}).items()
+                        }
+                except Exception as schema_error:
+                    logger.warning(f"Could not parse schema for tool {tool.name}: {schema_error}")
+            
+            tools.append(ToolSchema(
+                name=tool.name,
+                description=tool.description,
+                parameters=parameters
+            ))
+        
         return {"tools": tools}
+    
     except Exception as e:
-        logger.error(f"Error listing tools: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to list tools: {str(e)}")
+        logger.error(f"Error listing tools: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to list tools. Please check server logs for details."
+        )
 
 @router.post("/search/date-filtered")
 async def date_filtered_search(

@@ -1,13 +1,10 @@
-import os
-import sys
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import json
 import logging
 import aiohttp
 import asyncio
 from typing import AsyncGenerator, Optional, List, Dict, Any, Union, Callable
 from datetime import datetime
-from config import get_settings
+from ..config import get_settings
 import PyPDF2
 import io
 from bs4 import BeautifulSoup
@@ -25,13 +22,15 @@ from langchain.agents.agent_toolkits import create_retriever_tool
 from langchain.tools import Tool, StructuredTool
 from langchain.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain.pydantic_v1 import BaseModel, Field
+from pydantic import BaseModel, Field
 from langchain.tools.render import format_tool_to_openai_function
 from datetime import datetime, timedelta
 from urllib.parse import quote
-from langchain.memory import ConversationBufferMemory
+from langchain.memory import VectorStoreRetrieverMemory
 from langchain.schema import BaseChatMessageHistory
 from langchain.schema.messages import HumanMessage, AIMessage
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
 
 logger = logging.getLogger(__name__)
 
@@ -102,17 +101,41 @@ class CrossReferenceQuery(BaseModel):
 class RAGService:
     def __init__(self):
         self.settings = get_settings()
-        self.chroma_client = chromadb.PersistentClient(path=self.settings.chromadb_path)
-        self.vector_store = ChromaVectorStore(chroma_collection=self.chroma_client.get_or_create_collection("rag_docs"))
         
-        # Use a local embedding model instead of the default OpenAI one
+        # First, try to delete the existing collection if it exists
+        try:
+            self.chroma_client = chromadb.PersistentClient(path=self.settings.chromadb_path)
+            self.chroma_client.delete_collection("rag_docs")
+        except Exception as e:
+            logger.warning(f"Could not delete collection: {e}")
+        
+        # Now create fresh instances
+        self.chroma_client = chromadb.PersistentClient(path=self.settings.chromadb_path)
+        chroma_collection = self.chroma_client.get_or_create_collection(
+            "rag_docs",
+            metadata={"hnsw:space": "cosine"}  # Add explicit metadata
+        )
+        
+        # Rest of your initialization...
+        self.vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+        
+        # Use a local embedding model
         self.embed_model = HuggingFaceEmbedding(model_name="all-MiniLM-L6-v2")
         
-        # Pass the embed_model explicitly
+        # Create the index
         self.index = VectorStoreIndex.from_vector_store(
             vector_store=self.vector_store,
             embed_model=self.embed_model
         )
+        
+        lc_embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+        self.langchain_chroma = Chroma(
+            client=self.chroma_client,
+            collection_name="rag_docs",
+            embedding_function=lc_embeddings
+        )
+        
+        self.retriever = self.langchain_chroma.as_retriever()
         
         genai.configure(api_key=self.settings.gemini_api_key)
         self.model = genai.GenerativeModel("gemini-2.0-flash")
@@ -125,7 +148,8 @@ class RAGService:
         )
         
         # Initialize conversation memory
-        self.memory = ConversationBufferMemory(
+        self.memory = VectorStoreRetrieverMemory(
+            retriever=self.retriever,
             memory_key="chat_history",
             return_messages=True,
             output_key="output"
@@ -233,7 +257,7 @@ class RAGService:
             tools=self.tools,
             verbose=True,
             handle_parsing_errors=True,
-            max_iterations=10,
+            max_iterations=20,
             return_intermediate_steps=True,
             memory=self.memory
         )

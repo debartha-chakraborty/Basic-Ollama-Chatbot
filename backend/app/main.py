@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 import uvicorn
 import sys
-from routers.generation import router as generator_router
+from .routers.generation import router as generator_router
 from config import get_settings
 
 # Configure logging
