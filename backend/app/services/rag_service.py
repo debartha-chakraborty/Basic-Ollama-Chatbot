@@ -185,31 +185,40 @@ class RAGService:
         
         # Create the agent prompt with required variables and memory
         agent_prompt = PromptTemplate.from_template("""
-        You are an intelligent research assistant that helps find accurate information from government documents.
-        
-        You have access to the following tools:
-        
-        {tools}
-        
-        Previous conversation history:
-        {chat_history}
-        
-        Use the following format for your responses:
-        
-        Question: the input question you must answer
-        Thought: you should always think about what to do
-        Action: the action to take, should be one of [{tool_names}]
-        Action Input: the input to the action
-        Observation: the result of the action
-        ... (this Thought/Action/Action Input/Observation can repeat N times)
-        Thought: I now know the final answer
-        Final Answer: the final answer to the original input question
-        
-        Begin!
-        
-        Question: {input}
-        Thought:{agent_scratchpad}
-        """)
+            You are an expert research assistant specializing in finding precise information from government documents and official sources.
+            
+            Your goal is to retrieve the most accurate, relevant, and authoritative information to answer questions about government policies, regulations, programs, and services.
+            
+            You have access to the following tools:
+            
+            {tools}
+            
+            Previous conversation history:
+            {chat_history}
+            
+            When researching, follow these principles:
+            - Prioritize primary sources (official government websites, legislation, policy documents)
+            - Consider the recency and applicability of information
+            - Look for specific sections, clauses, or paragraphs that directly address the query
+            - Gather sufficient context to ensure accurate interpretation
+            - Cross-reference information when possible for verification
+            
+            Use the following format for your responses:
+            
+            Question: the input question you must answer
+            Thought: carefully analyze what information is needed and where to find it
+            Action: the action to take, should be one of [{tool_names}]
+            Action Input: precise, targeted input to the action that will yield relevant results
+            Observation: the result of the action
+            ... (this Thought/Action/Action Input/Observation can repeat N times)
+            Thought: I now know the final answer based on authoritative government information
+            Final Answer: the comprehensive answer to the original question, citing specific government sources
+            
+            Begin!
+            
+            Question: {input}
+            Thought:{agent_scratchpad}
+            """)
         
         # Create the agent with memory
         agent = create_react_agent(
@@ -270,10 +279,23 @@ class RAGService:
     async def agentic_retrieve(self, prompt: str) -> str:
         """Use the agent to intelligently retrieve the most relevant information for the prompt"""
         try:
-            # Run the agent synchronously using asyncio.to_thread to prevent blocking
+            # Create an enhanced input prompt that encourages better information retrieval
+            enhanced_prompt = f"""
+            I need to find specific, relevant information from government documents to answer:
+            
+            {prompt}
+            
+            When searching, prioritize:
+            - Official government sources and documentation
+            - Information that directly addresses the core question
+            - Recent and up-to-date information when available
+            - Complete context to ensure accurate understanding
+            """
+            
+            # Run the agent using the enhanced prompt
             result = await asyncio.to_thread(
                 self.agent_executor.invoke,
-                {"input": prompt}
+                {"input": enhanced_prompt}
             )
             
             # Check if we have intermediate steps for debugging
@@ -297,10 +319,65 @@ class RAGService:
     async def generate(self, prompt: str, **kwargs) -> str:
         # Use the agent to retrieve context intelligently
         context = await self.agentic_retrieve(prompt)
-        full_prompt = f"Context:\n{context}\n\nUser: {prompt}\nAssistant:"
+        
+        # Create a structured prompt for generation that leverages the retrieved context
+        full_prompt = f"""
+        Context from government documents:
+        {context}
+        
+        Based on the above official information, please provide a thorough and accurate response to:
+        
+        User: {prompt}
+        
+        Your response should:
+        - Rely strictly on the provided government information
+        - Cite specific regulations, policies, or documents where applicable
+        - Be clear and accessible to someone unfamiliar with government terminology
+        - Indicate if certain aspects of the question cannot be answered with the available information
+        
+        Assistant:
+        """
+        
         # Call Gemini API
         response = await asyncio.to_thread(self.model.generate_content, full_prompt)
         return response.text
+
+    def create_improved_agent_prompt():
+        return PromptTemplate.from_template("""
+        You are an expert research assistant specializing in finding precise information from government documents and official sources.
+        
+        Your goal is to retrieve the most accurate, relevant, and authoritative information to answer questions about government policies, regulations, programs, and services.
+        
+        You have access to the following tools:
+        
+        {tools}
+        
+        Previous conversation history:
+        {chat_history}
+        
+        When researching, follow these principles:
+        - Prioritize primary sources (official government websites, legislation, policy documents)
+        - Consider the recency and applicability of information
+        - Look for specific sections, clauses, or paragraphs that directly address the query
+        - Gather sufficient context to ensure accurate interpretation
+        - Cross-reference information when possible for verification
+        
+        Use the following format for your responses:
+        
+        Question: the input question you must answer
+        Thought: carefully analyze what information is needed and where to find it
+        Action: the action to take, should be one of [{tool_names}]
+        Action Input: precise, targeted input to the action that will yield relevant results
+        Observation: the result of the action
+        ... (this Thought/Action/Action Input/Observation can repeat N times)
+        Thought: I now know the final answer based on authoritative government information
+        Final Answer: the comprehensive answer to the original question, citing specific government sources
+        
+        Begin!
+        
+        Question: {input}
+        Thought:{agent_scratchpad}
+        """)
 
     async def generate_stream(self, prompt: str, **kwargs) -> AsyncGenerator[str, None]:
         # Use the agent to retrieve context intelligently
