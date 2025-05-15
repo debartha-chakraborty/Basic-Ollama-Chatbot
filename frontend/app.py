@@ -15,7 +15,7 @@ def generate_text_stream(prompt: str, model: str) -> requests.Response:
         "stream": True
     }
     return requests.post(
-        f"{BACKEND_URL}/api/v1/generate/stream",
+        f"{BACKEND_URL}/api/v1/generate",
         json=payload,
         stream=True
     )
