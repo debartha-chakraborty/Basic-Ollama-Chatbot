@@ -1,5 +1,11 @@
-fastapi==0.105.0
-uvicorn==0.24.0
-pydantic_settings==2.5.2
-httpx==0.25.2
-python-dotenv==1.0.0
+fastapi
+uvicorn
+pydantic_settings
+httpx
+python-dotenv
+llama-index
+chromadb
+google-generativeai
+PyPDF2
+beautifulsoup4
+aiohttp
