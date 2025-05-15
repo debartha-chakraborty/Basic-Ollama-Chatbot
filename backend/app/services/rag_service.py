@@ -13,7 +13,6 @@ from bs4 import BeautifulSoup
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Document
 from llama_index.core.vector_stores import VectorStoreQuery
 from llama_index.vector_stores.chroma import ChromaVectorStore
-# Fixed import for HuggingFaceEmbedding
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 import chromadb
 import google.generativeai as genai
@@ -132,29 +131,32 @@ class RAGService:
                         
                         # Create a structured text representation
                         text = f"""
-Document Number: {doc_info['document_number']}
-Title: {doc_info['title']}
-Type: {doc_info['type']}
-Publication Date: {doc_info['publication_date']}
-Agencies: {', '.join(doc_info['agencies'])}
-Abstract: {doc_info['abstract']}
-Excerpts: {doc_info['excerpts']}
+                        Document Number: {doc_info['document_number']}
+                        Title: {doc_info['title']}
+                        Type: {doc_info['type']}
+                        Publication Date: {doc_info['publication_date']}
+                        Agencies: {', '.join(doc_info['agencies'])}
+                        Abstract: {doc_info['abstract']}
+                        Excerpts: {doc_info['excerpts']}
 
-HTML Content:
-{html_content}
+                        HTML Content:
+                        {html_content}
 
-PDF Content:
-{pdf_content}
+                        PDF Content:
+                        {pdf_content}
 
-URL: {doc_info['html_url']}
-PDF: {doc_info['pdf_url']}
-"""
+                        URL: {doc_info['html_url']}
+                        PDF: {doc_info['pdf_url']}
+                """
                         # Create metadata for better retrieval
+                        # Convert the agencies list to a comma-separated string for ChromaDB compatibility
+                        agencies_str = ", ".join(doc_info['agencies']) if doc_info['agencies'] else ""
+                        
                         metadata = {
                             "document_number": doc_info['document_number'],
                             "publication_date": doc_info['publication_date'],
                             "type": doc_info['type'],
-                            "agencies": doc_info['agencies'],
+                            "agencies": agencies_str,  # Store as string instead of list
                             "has_html_content": bool(html_content),
                             "has_pdf_content": bool(pdf_content)
                         }

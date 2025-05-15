@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     port: int = 8000
     debug_mode: bool = True
     # Gemini API settings
-    gemini_api_key: str = ""  # Set this in your environment or .env file
+    gemini_api_key: str = "AIzaSyCJuJJUEwNK0LWAv_VPFZMvFPr0pJbWlDM"  # Set this in your environment or .env file
     # ChromaDB settings
     chromadb_path: str = "./chroma_db"
     
