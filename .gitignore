@@ -175,4 +175,4 @@ cython_debug/
 
 .idea/
 
-config.py/
+backend/app/config.py
