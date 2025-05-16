@@ -4,7 +4,6 @@ import aiohttp
 import asyncio
 from typing import AsyncGenerator, Optional, List, Dict, Any, Union, Callable
 from datetime import datetime
-from ..config import get_settings
 import PyPDF2
 import io
 from bs4 import BeautifulSoup
@@ -12,7 +11,7 @@ from bs4 import BeautifulSoup
 from llama_index.core import VectorStoreIndex, SimpleDirectoryReader, StorageContext, load_index_from_storage, Document
 from llama_index.core.vector_stores import VectorStoreQuery
 from llama_index.vector_stores.chroma import ChromaVectorStore
-from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from langchain_huggingface import HuggingFaceEmbeddings
 import chromadb
 import google.generativeai as genai
 
@@ -26,11 +25,15 @@ from pydantic import BaseModel, Field
 from langchain.tools.render import format_tool_to_openai_function
 from datetime import datetime, timedelta
 from urllib.parse import quote
-from langchain.memory import VectorStoreRetrieverMemory
-from langchain.schema import BaseChatMessageHistory
 from langchain.schema.messages import HumanMessage, AIMessage
-from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.documents import Document as LangchainDocument
+from langchain_core.callbacks import CallbackManagerForRetrieverRun
+from typing import List, Dict, Any, Optional
+from langchain_core.retrievers import BaseRetriever
+from langchain_community.retrievers import LlamaIndexRetriever
+
+# Import config
+from ..config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -98,49 +101,37 @@ class CrossReferenceQuery(BaseModel):
     reference_type: str = Field(description="Type of reference (e.g., 'cited_by', 'cites', 'related')")
     depth: int = Field(default=1, description="Depth of reference chain to follow")
 
+
+
 class RAGService:
     def __init__(self):
         self.settings = get_settings()
         
-        # First, try to delete the existing collection if it exists
-        try:
-            self.chroma_client = chromadb.PersistentClient(path=self.settings.chromadb_path)
-            self.chroma_client.delete_collection("rag_docs")
-        except Exception as e:
-            logger.warning(f"Could not delete collection: {e}")
-        
-        # Now create fresh instances
+        # Initialize ChromaDB
         self.chroma_client = chromadb.PersistentClient(path=self.settings.chromadb_path)
-        chroma_collection = self.chroma_client.get_or_create_collection(
-            "rag_docs",
-            metadata={"hnsw:space": "cosine"}  # Add explicit metadata
-        )
-        
-        # Rest of your initialization...
+        chroma_collection = self.chroma_client.get_or_create_collection("rag_docs")
         self.vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
         
-        # Use a local embedding model
-        self.embed_model = HuggingFaceEmbedding(model_name="all-MiniLM-L6-v2")
+        # Initialize embedding model
+        self.embed_model = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
         
-        # Create the index
+        # Create index
         self.index = VectorStoreIndex.from_vector_store(
             vector_store=self.vector_store,
             embed_model=self.embed_model
         )
         
-        lc_embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        self.langchain_chroma = Chroma(
-            client=self.chroma_client,
-            collection_name="rag_docs",
-            embedding_function=lc_embeddings
+        # Create a LlamaIndex retriever wrapped for LangChain compatibility
+        self.retriever = LlamaIndexRetriever(
+            index=self.index,  # Pass the index directly
+            search_kwargs={"k": 3}
         )
         
-        self.retriever = self.langchain_chroma.as_retriever()
-        
+        # Initialize LLM
         genai.configure(api_key=self.settings.gemini_api_key)
         self.model = genai.GenerativeModel("gemini-2.0-flash")
         
-        # Initialize LangChain Gemini model for the agent
+        # Initialize LangChain components
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.0-flash",
             google_api_key=self.settings.gemini_api_key,
@@ -148,8 +139,23 @@ class RAGService:
         )
         
         # Initialize conversation memory
+        # Using newer approach for memory to avoid deprecation warnings
+        from langchain_community.vectorstores import DocArrayInMemorySearch
+        from langchain_core.vectorstores import VectorStoreRetriever
+        
+        # Create a simple in-memory vector store for the conversation memory
+        vectorstore = DocArrayInMemorySearch.from_texts(
+            ["Hello, how can I help you?"],
+            embedding=self.embed_model
+        )
+        
+        # Create a standard VectorStoreRetriever for memory
+        memory_retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+        
+        # Set up memory with the retriever
+        from langchain.memory import VectorStoreRetrieverMemory
         self.memory = VectorStoreRetrieverMemory(
-            retriever=self.retriever,
+            retriever=memory_retriever,
             memory_key="chat_history",
             return_messages=True,
             output_key="output"
@@ -257,7 +263,7 @@ class RAGService:
             tools=self.tools,
             verbose=True,
             handle_parsing_errors=True,
-            max_iterations=20,
+            max_iterations=10,
             return_intermediate_steps=True,
             memory=self.memory
         )
